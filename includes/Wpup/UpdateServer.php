@@ -23,6 +23,7 @@ class Wpup_UpdateServer {
 	protected $ip4Mask = '';
 	protected $ip6Mask = '';
 
+
 	public function __construct($serverUrl = null, $serverDirectory = null) {
 		if ( $serverDirectory === null ) {
 			$serverDirectory = realpath(__DIR__ . '/../..');
@@ -61,16 +62,9 @@ class Wpup_UpdateServer {
 	 * @return string Url
 	 */
 	public static function guessServerUrl() {
-		if ( !isset($_SERVER['HTTP_HOST']) || !isset($_SERVER['SCRIPT_NAME']) ) {
-			return '/';
-		}
-
 		$serverUrl = (self::isSsl() ? 'https' : 'http');
-		//phpcs:disable WordPress.Security.ValidatedSanitizedInput -- Converting to string should be enough.
-		/** @noinspection PhpUnnecessaryStringCastInspection -- Let's make the cast explicit. */
-		$serverUrl .= '://' . strval($_SERVER['HTTP_HOST']);
-		$path = strval($_SERVER['SCRIPT_NAME']);
-		//phpcs:enable
+		$serverUrl .= '://' . $_SERVER['HTTP_HOST'];
+		$path = $_SERVER['SCRIPT_NAME'];
 
 		if ( basename($path) === 'index.php' ) {
 			$path = dirname($path);
@@ -97,9 +91,7 @@ class Wpup_UpdateServer {
 	 */
 	public static function isSsl() {
 		if ( isset($_SERVER['HTTPS']) ) {
-			//Sanitization is not needed here because the value is only checked against known values.
-			//phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-			if ( ($_SERVER['HTTPS'] == '1') || (strtolower($_SERVER['HTTPS']) === 'on') ) {
+			if ( $_SERVER['HTTPS'] == '1' || strtolower($_SERVER['HTTPS']) === 'on' ) {
 				return true;
 			}
 		} elseif ( isset($_SERVER['SERVER_PORT']) && ('443' == $_SERVER['SERVER_PORT']) ) {
@@ -114,18 +106,82 @@ class Wpup_UpdateServer {
 	 * @param array|null $query Query parameters. Defaults to the current GET request parameters.
 	 * @param array|null $headers HTTP headers. Defaults to the headers received for the current request.
 	 */
-	public function handleRequest($query = null, $headers = null) {
-		$this->startTime = microtime(true);
+public function handleRequest($query = null, $headers = null) {
+    // Stingray82 Modification - Begins
+    // Get the plugin slug, action, and file from the request
+    $slug = isset($_GET['slug']) ? $_GET['slug'] : null;
+    $action = isset($_GET['action']) ? $_GET['action'] : null;
+    $file = isset($_GET['file']) ? $_GET['file'] : null;
 
-		$request = $this->initRequest($query, $headers);
-		$this->logRequest($request);
+    // Log the file parameter to ensure it's being passed correctly
+    error_log("Received file parameter: " . $file);
 
-		$this->loadPackageFor($request);
-		$this->validateRequest($request);
-		$this->checkAuthorization($request);
-		$this->dispatch($request);
-		exit;
-	}
+    // Handle custom file download requests
+    if ($action === 'download' && $file) {
+        // Construct the full path to the requested zip file
+        $zip_file = realpath(__DIR__ . '/../../packages/' . basename($file));
+
+        // Log the file path for debugging
+        error_log("Attempting to download file: " . $zip_file);
+
+        // Check if the file exists and serve it
+        if (file_exists($zip_file)) {
+            error_log("File found: " . $zip_file);
+            header('Content-Type: application/zip');
+            header('Content-Disposition: attachment; filename="' . basename($zip_file) . '"');
+            header('Content-Length: ' . filesize($zip_file));
+            readfile($zip_file);
+            exit;
+        } else {
+            error_log("File not found: " . $zip_file);
+            header("HTTP/1.0 404 Not Found");
+            echo "File not found.";
+            exit;
+        }
+    }
+    // Stingray82 Modification - Ends
+
+    // Continue with original slug-based request handling for other actions
+    if ($slug && $this->isCustomPlugin($slug)) {
+        error_log('Custom plugin detected: ' . $slug);
+        $custom_plugin_handler = realpath(__DIR__ . '/../../custom-plugin-handler.php');
+        if (file_exists($custom_plugin_handler)) {
+            require_once $custom_plugin_handler;
+            exit;
+        }
+    }
+
+    // Proceed with normal request handling if custom logic isn't executed
+    $this->startTime = microtime(true);
+    $request = $this->initRequest($query, $headers);
+    $this->logRequest($request);
+    $this->loadPackageFor($request);
+    $this->validateRequest($request);
+    $this->checkAuthorization($request);
+    $this->dispatch($request);
+    exit;
+}
+
+    // New method to check if the plugin is in the custom list // Stingray82
+    private function isCustomPlugin($slug) {
+        // Include the custom plugin handler to get the plugin list
+        $custom_plugin_handler = realpath(__DIR__ . '/../../custom-plugin-handler.php');
+        if (file_exists($custom_plugin_handler)) {
+            include_once $custom_plugin_handler;
+
+            // Assuming $custom_plugins is defined in custom-plugin-handler.php
+            if (isset($custom_plugins)) {
+                // Debugging - Log to ensure we're checking against the correct slug
+                error_log('Checking if plugin is custom: ' . $slug);
+
+                // Check if the slug exists in the custom plugin list
+                return array_key_exists($slug, $custom_plugins);
+            }
+        }
+
+        return false;
+    }
+
 
 	/**
 	 * Set up a request instance.
@@ -136,24 +192,13 @@ class Wpup_UpdateServer {
 	 */
 	protected function initRequest($query = null, $headers = null) {
 		if ( $query === null ) {
-			//Nonce verification doesn't apply to the update server. It doesn't
-			//process forms at all, or deal with stateful requests.
-			//phpcs:ignore WordPress.Security.NonceVerification.Recommended
 			$query = $_GET;
 		}
 		if ( $headers === null ) {
 			$headers = Wpup_Headers::parseCurrent();
 		}
-
-		//As of this writing, the client IP is only used for logging. Any more
-		//advanced uses should implement additional sanitization.
-		//phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders,WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$clientIp = isset($_SERVER['REMOTE_ADDR']) ? strval($_SERVER['REMOTE_ADDR']) : '0.0.0.0';
-
-		//Ensure that the HTTP method is always a string. That should be enough
-		//sanitization for our purposes.
-		//phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$httpMethod = isset($_SERVER['REQUEST_METHOD']) ? strval($_SERVER['REQUEST_METHOD']) : 'GET';
+		$clientIp = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : '0.0.0.0';
+		$httpMethod = isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'GET';
 
 		return new Wpup_Request($query, $headers, $clientIp, $httpMethod);
 	}
@@ -260,6 +305,11 @@ class Wpup_UpdateServer {
 	 * @param Wpup_Request $request
 	 */
 	protected function actionDownload(Wpup_Request $request) {
+		//Required for IE, otherwise Content-Disposition may be ignored.
+		if ( ini_get('zlib.output_compression') ) {
+			@ini_set('zlib.output_compression', 'Off');
+		}
+
 		$package = $request->package;
 		header('Content-Type: application/zip');
 		header('Content-Disposition: attachment; filename="' . $package->slug . '.zip"');
@@ -473,16 +523,8 @@ class Wpup_UpdateServer {
 
 			//Set the time zone to whatever the default is to avoid PHP notices.
 			//Will default to UTC if it's not set properly in php.ini.
-			$configuredTz = ini_get('date.timezone');
-			if ( empty($configuredTz) ) {
-				//The update server can be used outside WP, so it can't rely on WordPress's timezone support.
-				//phpcs:ignore WordPress.DateTime.RestrictedFunctions.timezone_change_date_default_timezone_set
-				date_default_timezone_set(@date_default_timezone_get());
-			}
+			date_default_timezone_set(@date_default_timezone_get());
 
-			//Use date() instead of gmdate() because the person reading the log file will probably
-			//find it more convenient to see a timestamp in their own (server's) time zone.
-			//phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date
 			$line = date('[Y-m-d H:i:s O]') . ' ' . implode("\t", $columns) . "\n";
 
 			fwrite($handle, $line);
@@ -503,7 +545,6 @@ class Wpup_UpdateServer {
 	protected function getLogFileName() {
 		$path = $this->logDirectory . '/request';
 		if ( $this->logRotationEnabled ) {
-			//phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date -- Similar to above.
 			$path .= '-' . date($this->logDateSuffix);
 		}
 		return $path . '.log';
@@ -652,30 +693,19 @@ class Wpup_UpdateServer {
 	protected function outputAsJson($response) {
 		header('Content-Type: application/json; charset=utf-8');
 		if ( defined('JSON_PRETTY_PRINT') ) {
-			$output = $this->jsonEncode($response, JSON_PRETTY_PRINT);
+			$output = json_encode($response, JSON_PRETTY_PRINT);
 		} elseif ( function_exists('wsh_pretty_json') ) {
-			$output = wsh_pretty_json($this->jsonEncode($response));
+			$output = wsh_pretty_json(json_encode($response));
 		} else {
-			$output = $this->jsonEncode($response);
+			$output = json_encode($response);
 		}
-		//phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- The output is JSON, not HTML.
 		echo $output;
-	}
-
-	protected function jsonEncode($value, $flags = 0) {
-		if ( function_exists('wp_json_encode') ) {
-			return wp_json_encode($value, $flags);
-		} else {
-			//Fall back to the native json_encode() when running outside of WordPress.
-			//phpcs:ignore WordPress.WP.AlternativeFunctions.json_encode_json_encode
-			return json_encode($value, $flags);
-		}
 	}
 
 	/**
 	 * Stop script execution with an error message.
 	 *
-	 * @param string $message Error message. It should already be HTML-escaped. This method will not sanitize it.
+	 * @param string $message Error message.
 	 * @param int $httpStatus Optional HTTP status code. Defaults to 500 (Internal Server Error).
 	 */
 	protected function exitWithError($message = '', $httpStatus = 500) {
@@ -709,15 +739,13 @@ class Wpup_UpdateServer {
 			505 => '505 HTTP Version Not Supported',
 		);
 
-		if ( !isset($_SERVER['SERVER_PROTOCOL']) || ($_SERVER['SERVER_PROTOCOL'] === '') ) {
+		if ( !isset($_SERVER['SERVER_PROTOCOL']) || $_SERVER['SERVER_PROTOCOL'] === '' ) {
 			$protocol = 'HTTP/1.1';
 		} else {
-			//We'll just return the same protocol as the client used.
-			//phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-			$protocol = strval($_SERVER['SERVER_PROTOCOL']);
+			$protocol = $_SERVER['SERVER_PROTOCOL'];
 		}
 
-		//Output an HTTP status header.
+		//Output a HTTP status header.
 		if ( isset($statusMessages[$httpStatus]) ) {
 			header($protocol . ' ' . $statusMessages[$httpStatus]);
 			$title = $statusMessages[$httpStatus];
@@ -736,10 +764,7 @@ class Wpup_UpdateServer {
 				<head> <title>%1$s</title> </head>
 				<body> <h1>%1$s</h1> <p>%2$s</p> </body>
 			 </html>',
-			//phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- esc_html() might not be available here.
-			htmlentities($title),
-			//phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Should already be escaped.
-			$message
+			$title, $message
 		);
 		exit;
 	}
@@ -774,4 +799,7 @@ class Wpup_UpdateServer {
 
 		return $base . http_build_query($query, '', '&');
 	}
+
 }
+
+
