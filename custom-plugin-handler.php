@@ -46,12 +46,14 @@ function get_plugin_metadata_from_zip($zip_path, $plugin_file_name) {
 
 // Define the custom plugins list
 $custom_plugins = array(
-   'my-custom' => array(                               // Slug can be anything (Should be what wordpress will be looking for)
-        'zip_path'  => __DIR__ . '/packages/my-custom-plugin.zip', // Path to the new plugin's ZIP file
-        'main_file' => 'my-custom-plugin/my-custom-plugin.php',    // Path to the new plugin’s main file inside the ZIP
+    'my-custom' => array(
+        'zip_path'  => __DIR__ . '/packages/my-custom-plugin.zip',
+        'main_file' => 'my-custom-plugin/my-custom-plugin.php',
     ),
-    // Add more plugins here
 );
+
+// Return the custom plugins array
+return $custom_plugins;
 
 
 // Get the slug from the request

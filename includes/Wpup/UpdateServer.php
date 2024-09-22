@@ -107,8 +107,7 @@ class Wpup_UpdateServer {
 	 * @param array|null $headers HTTP headers. Defaults to the headers received for the current request.
 	 */
 public function handleRequest($query = null, $headers = null) {
-    // Stingray82 Modification - Begins
-    // Get the plugin slug, action, and file from the request
+    // Get the plugin slug, action, and file from the request - Stingray 82
     $slug = isset($_GET['slug']) ? $_GET['slug'] : null;
     $action = isset($_GET['action']) ? $_GET['action'] : null;
     $file = isset($_GET['file']) ? $_GET['file'] : null;
@@ -116,15 +115,12 @@ public function handleRequest($query = null, $headers = null) {
     // Log the file parameter to ensure it's being passed correctly
     error_log("Received file parameter: " . $file);
 
-    // Handle custom file download requests
+    // Custom file download logic
     if ($action === 'download' && $file) {
-        // Construct the full path to the requested zip file
         $zip_file = realpath(__DIR__ . '/../../packages/' . basename($file));
-
-        // Log the file path for debugging
         error_log("Attempting to download file: " . $zip_file);
 
-        // Check if the file exists and serve it
+        // Serve the file if it exists
         if (file_exists($zip_file)) {
             error_log("File found: " . $zip_file);
             header('Content-Type: application/zip');
@@ -139,9 +135,8 @@ public function handleRequest($query = null, $headers = null) {
             exit;
         }
     }
-    // Stingray82 Modification - Ends
 
-    // Continue with original slug-based request handling for other actions
+    // Custom plugin update handling
     if ($slug && $this->isCustomPlugin($slug)) {
         error_log('Custom plugin detected: ' . $slug);
         $custom_plugin_handler = realpath(__DIR__ . '/../../custom-plugin-handler.php');
@@ -151,7 +146,7 @@ public function handleRequest($query = null, $headers = null) {
         }
     }
 
-    // Proceed with normal request handling if custom logic isn't executed
+    // Fall back to default handling for non-custom plugins - End of Edits - Stingray82
     $this->startTime = microtime(true);
     $request = $this->initRequest($query, $headers);
     $this->logRequest($request);
@@ -162,25 +157,15 @@ public function handleRequest($query = null, $headers = null) {
     exit;
 }
 
-    // New method to check if the plugin is in the custom list // Stingray82
-    private function isCustomPlugin($slug) {
-        // Include the custom plugin handler to get the plugin list
-        $custom_plugin_handler = realpath(__DIR__ . '/../../custom-plugin-handler.php');
-        if (file_exists($custom_plugin_handler)) {
-            include_once $custom_plugin_handler;
+// Check if the plugin is custom - Stingray82
+private function isCustomPlugin($slug) {
+    $custom_plugins = require_once __DIR__ . '/../../custom-plugin-handler.php'; // Load custom plugin array
 
-            // Assuming $custom_plugins is defined in custom-plugin-handler.php
-            if (isset($custom_plugins)) {
-                // Debugging - Log to ensure we're checking against the correct slug
-                error_log('Checking if plugin is custom: ' . $slug);
+    error_log('Checking if plugin is custom: ' . $slug);
+    return isset($custom_plugins[$slug]);
+}
 
-                // Check if the slug exists in the custom plugin list
-                return array_key_exists($slug, $custom_plugins);
-            }
-        }
 
-        return false;
-    }
 
 
 	/**
