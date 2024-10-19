@@ -282,10 +282,12 @@ protected function findPackage($slug) {
     $safeSlug = preg_replace('@[^a-z0-9\-_\.,+!]@i', '', $slug);
 
     // Define an array of possible modifiers for the filename
-    $modifiers = array(
+        $modifiers = array(
         '',            // Standard slug.zip
         '-plugin',     // slug-plugin.zip
 		'-tweaks-and-updates', // Slug -tweaks-and-updates.zip
+		'-pro', // Slug -pro.zip
+		'-premium', // Slug -premium.zip
         // Add more modifiers here as needed
     );
 
