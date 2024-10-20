@@ -281,22 +281,40 @@ protected function findPackage($slug) {
     // Sanitize the slug to ensure it's safe for file handling
     $safeSlug = preg_replace('@[^a-z0-9\-_\.,+!]@i', '', $slug);
 
-    // Define an array of possible modifiers for the filename
-        $modifiers = array(
+    // List of slugs that should be treated as exceptions (not modified or stripped)
+    $exceptions = array(
+        //'specialplugin',   // Example exception that will always be served as is
+        //'customplugin',    // Another example
+        // Add more exceptions here as needed
+    );
+
+    // Check if the slug is in the exceptions list
+    if (in_array($safeSlug, $exceptions)) {
+        // Serve the package file for the exception without any modification
+        $filename = $this->packageDirectory . '/' . $safeSlug . '.zip';
+
+        // If the file is found and readable, return it
+        if (is_file($filename) && is_readable($filename)) {
+            return call_user_func($this->packageFileLoader, $filename, $slug, $this->cache);
+        }
+
+        // If not found, return null early as no other processing should be done
+        return null;
+    }
+
+    // Define a single array of possible modifiers for both hyphenated and non-hyphenated cases
+    $modifiers = array(
         '',            // Standard slug.zip
-        '-plugin',     // slug-plugin.zip
-		'-tweaks-and-updates', // Slug -tweaks-and-updates.zip
-		'-pro', // Slug -pro.zip
-		'-premium', // Slug -premium.zip
+        '-plugin',     // slug-plugin.zip or slugplugin.zip
+        '-tweaks-and-updates', // slug-tweaks-and-updates.zip or slugtweaksandupdates.zip
+        '-pro',        // slug-pro.zip or slugpro.zip
+        '-premium',    // slug-premium.zip or slugpremium.zip
         // Add more modifiers here as needed
     );
 
-    // Loop through each modifier and attempt to find the corresponding ZIP file
+    // First, try with the original slug and modifiers
     foreach ($modifiers as $modifier) {
         $filename = $this->packageDirectory . '/' . $safeSlug . $modifier . '.zip';
-
-        // Log the attempt to find the file
-        //error_log("Looking for package file: " . $filename); // Only needed for error handling
 
         // If the file is found and readable, return it
         if (is_file($filename) && is_readable($filename)) {
@@ -304,10 +322,30 @@ protected function findPackage($slug) {
         }
     }
 
+    // Now, attempt to strip suffixes from both hyphenated and non-hyphenated versions of the slug
+    foreach ($modifiers as $modifier) {
+        // Handle slugs like 'pluginspro' or 'plugins-premium'
+        $suffixWithoutHyphen = str_replace('-', '', $modifier); // Removes hyphen from modifier, e.g., '-pro' becomes 'pro'
+
+        // If the slug ends with either a hyphenated or non-hyphenated suffix, strip it
+        if (substr($safeSlug, -strlen($modifier)) === $modifier || substr($safeSlug, -strlen($suffixWithoutHyphen)) === $suffixWithoutHyphen) {
+            // Remove the matching suffix from the slug
+            $strippedSlug = preg_replace('/(' . preg_quote($modifier, '/') . '|' . preg_quote($suffixWithoutHyphen, '/') . ')$/', '', $safeSlug);
+
+            // Check for the package file without the suffix
+            $filename = $this->packageDirectory . '/' . $strippedSlug . '.zip';
+
+            // If the file is found and readable, return it
+            if (is_file($filename) && is_readable($filename)) {
+                return call_user_func($this->packageFileLoader, $filename, $slug, $this->cache);
+            }
+        }
+    }
+
     // If no files are found, return null
     return null;
 }
-##End Stingray82 Modification
+## End Stingray82 Modification
 
 	/**
 	 * Stub. You can override this in a subclass to show update info only to
